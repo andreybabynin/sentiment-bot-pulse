@@ -1,17 +1,15 @@
 import requests as re
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler
 import json
+import os
 
+PORT = int(os.environ.get('PORT', '8443'))
 telegram_bot_token = '1284331928:AAFbIt-HNuEhX1uDExXgVyXOvY_PgYXBkxo'
 
-
 def recent_posts(update, context):
-    # fetch data from the api
-    #response = requests.get('http://quotes.stormconsultancy.co.uk/random.json')
-    #data = response.json()
-    # send message
-    if len(context.args)==0:
-        context.bot.send_message(chat_id=update.effective_chat.id, text='Ticker is not provided')
+
+    if len(context.args) != 1:
+        context.bot.send_message(chat_id=update.effective_chat.id, text='Ticker is not provided or too much')
     else:
         ticker = context.args[0]
         link='https://www.tinkoff.ru/api/invest-gw/social/v1/post/instrument/{}?limit=30&appName=invest&platform=web'.format(ticker)
@@ -32,5 +30,10 @@ if __name__ == '__main__':
     updater = Updater(token=telegram_bot_token, use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('recent', recent_posts))
-    updater.start_polling()
+    
+    updater.start_webhook(listen="0.0.0.0",
+                      port=PORT,
+                      url_path=telegram_bot_token,
+                      webhook_url="https://sentiment-bot-pulse.herokuapp.com/" + telegram_bot_token)
+    
     updater.idle()
