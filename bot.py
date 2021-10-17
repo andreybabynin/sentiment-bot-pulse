@@ -247,7 +247,10 @@ class Posts(Sentiment, Parser, Graphics):
     
         
 def main():
-    updater = Updater(token=auth_dic['telegram_bot_token'], use_context=True)
+    PORT = 8443
+    telegram_bot_token = '1284331928:AAFbIt-HNuEhX1uDExXgVyXOvY_PgYXBkxo'
+    
+    updater = Updater(token=telegram_bot_token, use_context=True)
     dispatcher = updater.dispatcher
     p = Posts()
     dispatcher.add_handler(CommandHandler('recent', p.recent_posts))
@@ -256,8 +259,7 @@ def main():
     dispatcher.add_handler(CommandHandler('links', p.get_links))
     dispatcher.add_handler(CommandHandler('stat', p.get_stat))
     
-    PORT = 8443
-    telegram_bot_token = '1284331928:AAFbIt-HNuEhX1uDExXgVyXOvY_PgYXBkxo'
+    
     
     updater.start_webhook(listen="0.0.0.0",
             port=PORT, url_path= telegram_bot_token,
