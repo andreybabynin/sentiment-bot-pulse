@@ -11,6 +11,7 @@ import string
 import re as r
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+import os
 plt.style.use("dark_background")
 nltk.download('stopwords')
 nltk.download('punkt')
@@ -247,7 +248,7 @@ class Posts(Sentiment, Parser, Graphics):
     
         
 def main():
-    PORT = 8443
+    PORT  = int(os.environ.get('PORT', 8443))
     telegram_bot_token = '1284331928:AAFbIt-HNuEhX1uDExXgVyXOvY_PgYXBkxo'
     
     updater = Updater(token=telegram_bot_token, use_context=True)
@@ -260,11 +261,10 @@ def main():
     dispatcher.add_handler(CommandHandler('stat', p.get_stat))
     
     
-    
     updater.start_webhook(listen="0.0.0.0",
-            port=PORT, url_path= telegram_bot_token,
-            webhook_url="https://sentiment-bot-pulse.herokuapp.com/" + telegram_bot_token)
-     
+            port=PORT, url_path = telegram_bot_token,
+            webhook_url = "https://sentiment-bot-pulse.herokuapp.com/" + telegram_bot_token)
+    
     #updater.start_polling()
     updater.idle()
 
