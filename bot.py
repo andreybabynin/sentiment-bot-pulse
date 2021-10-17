@@ -12,10 +12,13 @@ import re as r
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import os
+import networkx as nx
+from itertools import combinations
+
 plt.style.use("dark_background")
 nltk.download('stopwords')
 nltk.download('punkt')
-
+PORT  = int(os.environ.get('PORT', 8443))
 with open('./auth.json', 'r') as f:
     auth_dic = json.load(f)
     f.close()
@@ -163,6 +166,47 @@ class Graphics():
         plt.title('{} sentiment for the last 30 posts'.format(df.at[0, 'ticker']))
         plt.savefig('./{}.png'.format(user))
 
+    def link_chart(self, df, user):
+        network_df = self._find_connections(df)
+        fig = plt.figure()
+        ax = plt.gca()
+        fig.set_facecolor('white')
+        ax.set_facecolor('white')
+        network1 = nx.from_pandas_edgelist(network_df.sort_values('Weight', ascending=False)[:min(100, df.shape[0])], 
+                                           'Ticker', 'Target', edge_attr='Weight', create_using=nx.Graph)
+        pos = nx.spring_layout(network1, k=0.55)
+        options = {
+            "node_size": 1,
+            "width" : 0.5,
+            "style": 'dashed',
+            'edge_color': 'blue',
+            "edge_vmin": 0,
+            "edge_vmax": 5,
+            "font_size": 10, 
+            "with_labels": True}
+        
+        plt.title('Top 100 connectios between stocks in posts about {}'.format(df.at[1, 'ticker']))
+        nx.drawing.nx_pylab.draw_networkx(network1, pos = pos, **options)
+        plt.savefig('./link_{}.png'.format(user))
+        
+    def _find_connections(self, df):
+        dic_m = {}
+        for row in df['mentioned'].tolist():
+            list1 = row.split(' ')
+            list1.remove(df.at[0, 'ticker'])
+            if list1 != None:
+                comb = list(combinations(list1, 2))
+                for i in comb:
+                    if (i in dic_m.keys()) or ((i[1], i[0]) in dic_m.keys()):
+                        try:
+                            dic_m[i] += 1
+                        except: dic_m[(i[1], i[0])] += 1
+                    else:
+                        dic_m[i] = 1
+        list1 = []
+        for k,v in dic_m.items():
+            list1.append([k[0], k[1], v])
+        return pd.DataFrame(list1, columns = ['Ticker', 'Target', 'Weight'])
 
 class Posts(Sentiment, Parser, Graphics):
     def __init__(self):
@@ -187,7 +231,6 @@ class Posts(Sentiment, Parser, Graphics):
     
         context.bot.send_message(chat_id = update.effective_chat.id, text = text_start) 
     
-    
     def grab_data(self, update, context):
         user = update.message.from_user.username
         res, self.user_dic[user]['df'] = self.stock_parser(self.user_dic[user]['current_ticker'])
@@ -209,6 +252,7 @@ class Posts(Sentiment, Parser, Graphics):
                                          text='Data for the last ticker provided: {}'.format(self.user_dic[user]['current_ticker']))
                 func(self, update, context)
             elif len(context.args) == 0:
+                print('cccccccccccccccccc')
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Provide ticker')
             else:
                 ticker = context.args[0].upper()
@@ -229,17 +273,17 @@ class Posts(Sentiment, Parser, Graphics):
             text = '{} {}:  \n {}'.format(emodji, sent, text) 
             context.bot.send_message(chat_id=update.effective_chat.id, text=text) 
      
+    @ticker_decorator    
     def get_links(self, update, context):
         user = update.message.from_user.username
-        update.message.reply_text('Stat for {}'.format(self.user_dic[user]['current_ticker']))
+        self.link_chart(self.user_dic[user]['df'], user)
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./link_{}.png'.format(user), "rb"))
 
     @ticker_decorator
     def get_stat(self, update, context):
         user = update.message.from_user.username
-        if type(self.user_dic[user]['df']) != type(None):
-            self.pie_chart(self.user_dic[user]['df'], user)
-            context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./{}.png'.format(user), "rb"))
-        
+        self.pie_chart(self.user_dic[user]['df'], user)
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./{}.png'.format(user), "rb"))
 
     def feedback(self, update, context):
         user, text = update.message.from_user.username, update.message.text[10:]
@@ -248,8 +292,6 @@ class Posts(Sentiment, Parser, Graphics):
     
         
 def main():
-    PORT  = int(os.environ.get('PORT', 8443))
-    
     updater = Updater(token=auth_dic['telegram_bot_token'], use_context=True)
     dispatcher = updater.dispatcher
     p = Posts()
@@ -265,7 +307,6 @@ def main():
     
     #updater.start_polling()
     updater.idle()
-
 
 if __name__ == '__main__':
     main()
