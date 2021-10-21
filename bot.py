@@ -14,6 +14,14 @@ import matplotlib.pyplot as plt
 import os
 import networkx as nx
 from itertools import combinations
+from wordcloud import WordCloud
+from natasha import (
+    MorphVocab,
+    Doc,
+    NewsNERTagger,
+    NewsEmbedding,
+    Segmenter
+)
 
 plt.style.use("dark_background")
 nltk.download('stopwords')
@@ -25,7 +33,6 @@ with open('./auth.json', 'r') as f:
 
 class Parser(object):
     def __init__(self):
-        #self.df = pd.DataFrame()
         self.base_link = 'https://www.tinkoff.ru/api/invest-gw/social/v1/post/instrument/{}?limit=30&appName=invest&platform=web'
         
     def stock_parser(self, ticker, length = 1):
@@ -88,7 +95,6 @@ class Parser(object):
 
 class Sentiment(object):
     def __init__(self):        
-        #self.current_ticker = None
         self.russsian_stop = stopwords.words('russian')
         self.snowball = SnowballStemmer(language='russian')
         self.vectorizer = joblib.load('./models/vectorizer.joblib')
@@ -129,7 +135,6 @@ class Sentiment(object):
         tokens_wo_punkt = [i for i in tokens if i not in string.punctuation]
         tokens_wo_stop = [i for i in tokens_wo_punkt if i not in self.russsian_stop]
         tokens_wo_num = [r.sub('[0-9]', '', i) for i in tokens_wo_stop]
-        
         stemmed_tokens = [self.snowball.stem(i) for i in tokens_wo_num]
         stemmed_tokens_2 = ' '.join([i for i in stemmed_tokens if len(i)>2])
     
@@ -149,6 +154,10 @@ class Sentiment(object):
 class Graphics():
     def __init__(self):
         self.dic_color =  {'Bullish': 'green', 'Neutral': 'grey', 'Bearish': 'red'}
+        self.segmenter = Segmenter()
+        self.emb = NewsEmbedding()
+        self.ner_tagger = NewsNERTagger(self.emb)
+        self.morph_vocab = MorphVocab()
     
     def pie_chart(self, df, user):
         s = df['sentiment'].value_counts()
@@ -172,7 +181,7 @@ class Graphics():
         ax = plt.gca()
         fig.set_facecolor('white')
         ax.set_facecolor('white')
-        network1 = nx.from_pandas_edgelist(network_df.sort_values('Weight', ascending=False)[:min(100, df.shape[0])], 
+        network1 = nx.from_pandas_edgelist(network_df, 
                                            'Ticker', 'Target', edge_attr='Weight', create_using=nx.Graph)
         pos = nx.spring_layout(network1, k=0.55)
         options = {
@@ -185,7 +194,7 @@ class Graphics():
             "font_size": 10, 
             "with_labels": True}
         
-        plt.title('Top 100 connectios between stocks in posts about {}'.format(df.at[1, 'ticker']))
+        plt.title('Connectios between stocks in posts about {}'.format(df.at[1, 'ticker']))
         nx.drawing.nx_pylab.draw_networkx(network1, pos = pos, **options)
         plt.savefig('./link_{}.png'.format(user))
         
@@ -207,7 +216,29 @@ class Graphics():
         for k,v in dic_m.items():
             list1.append([k[0], k[1], v])
         return pd.DataFrame(list1, columns = ['Ticker', 'Target', 'Weight'])
-
+    
+    def _proper_names(self, df):
+        entr = set()
+        for row in df.text.values:
+            clean_text = self._clean_text(row)
+            doc = Doc(clean_text)
+            doc.segment(self.segmenter)
+            doc.tag_ner(self.ner_tagger)
+            for span in doc.spans:
+                span.normalize(self.morph_vocab)
+                if span.type== 'ORG':
+                    entr.add(r.sub('[0-9.,!?]*$%^', '', span.text).rstrip())
+        return entr
+    
+    def proper_word_chart(self, df, user):
+        entr = list(self._proper_names(df))
+        string = entr[0]
+        for e in entr[1:]:
+            string = string+',' + e
+        wordcloud = WordCloud(background_color="white", max_words=100, contour_width=3, contour_color='steelblue', width=400, height=400)
+        wordcloud.generate(string)
+        wordcloud.to_file('./proper_{}.png'.format(user))
+        
 class Posts(Sentiment, Parser, Graphics):
     def __init__(self):
         Sentiment.__init__(self)
@@ -226,7 +257,8 @@ class Posts(Sentiment, Parser, Graphics):
         text_start = """This BOT can do several things: \n
         /recent [TICKER] - extract recent posts and sentiment (max 500 symbols) \n
         /stat [TICKER] - statistics about comments \n
-        /links [TICKER] - graph of linked stocks based on frequency in recent coments \n
+        /links [TICKER] - graph of linked stocks based on frequency in recent comments \n
+        /names [TICKER] - visualize proper names in posts \n
         /feedback - write about your experience"""
     
         context.bot.send_message(chat_id = update.effective_chat.id, text = text_start) 
@@ -252,7 +284,6 @@ class Posts(Sentiment, Parser, Graphics):
                                          text='Data for the last ticker provided: {}'.format(self.user_dic[user]['current_ticker']))
                 func(self, update, context)
             elif len(context.args) == 0:
-                print('cccccccccccccccccc')
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Provide ticker')
             else:
                 ticker = context.args[0].upper()
@@ -265,12 +296,21 @@ class Posts(Sentiment, Parser, Graphics):
         return wrapper
     
     @ticker_decorator
+    def proper_names(self, update, context):
+        user = update.message.from_user.username
+        df = self.user_dic[user]['df']
+        
+        self.proper_word_chart(df, user)
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./proper_{}.png'.format(user), "rb"))
+
+    
+    @ticker_decorator
     def recent_posts(self, update, context):
         user = update.message.from_user.username
         for i in range(3):
             text = self.user_dic[user]['df'].at[i, 'text'][:500]
             sent, emodji = self.user_dic[user]['df'].at[i, 'sentiment'], self.emodji[self.user_dic[user]['df'].at[i, 'sentiment']]
-            text = '{} {}:  \n {}'.format(emodji, sent, text) 
+            text = '{} {}:  \n\n {}'.format(emodji, sent, text) 
             context.bot.send_message(chat_id=update.effective_chat.id, text=text) 
      
     @ticker_decorator    
@@ -287,7 +327,7 @@ class Posts(Sentiment, Parser, Graphics):
 
     def feedback(self, update, context):
         user, text = update.message.from_user.username, update.message.text[10:]
-        context.bot.send_message(chat_id=auth_dic['MY_ID'], text = """from user: {}, message: {} \n #FEED""".format(user, text))
+        context.bot.send_message(chat_id=auth_dic['MY_ID'], text = """from user: {}, message: {} \n\n #FEED""".format(user, text))
         update.message.reply_text('Thank you, {}, for your feedback!'.format(user))
     
         
@@ -300,6 +340,7 @@ def main():
     dispatcher.add_handler(CommandHandler('feedback', p.feedback))
     dispatcher.add_handler(CommandHandler('links', p.get_links))
     dispatcher.add_handler(CommandHandler('stat', p.get_stat))
+    dispatcher.add_handler(CommandHandler('names', p.proper_names))
     
     updater.start_webhook(listen="0.0.0.0",
             port=PORT, url_path = auth_dic['telegram_bot_token'],
@@ -310,4 +351,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
