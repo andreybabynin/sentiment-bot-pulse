@@ -35,7 +35,8 @@ class Parser(object):
     def __init__(self):
         self.base_link = 'https://www.tinkoff.ru/api/invest-gw/social/v1/post/instrument/{}?limit=30&appName=invest&platform=web'
         
-    def stock_parser(self, ticker, length = 1):
+    def stock_parser(self, context, length = 1):
+        ticker = context.user_data['current_ticker']
         cursor = 0
         #columns
         text  = []
@@ -74,8 +75,8 @@ class Parser(object):
                         ids.append(item['id'])
                         mentioned_count.append(len(item['content']['instruments']))
                         mentioned.append(' '.join([t['ticker'] for t in item['content']['instruments']])) 
-                        
-                    return 1, pd.DataFrame({'comment_id':ids,
+                    
+                    context.user_data['df'] = pd.DataFrame({'comment_id':ids,
                                                'ticker': [ticker]*len(author),
                                                'datetime_comment':time_stamp,
                                                'datetime_grab': [datetime.now()+timedelta(hours=3)]*len(author),
@@ -86,11 +87,12 @@ class Parser(object):
                                                'text': text,
                                                'mentioned_count': mentioned_count,
                                                 'mentioned': mentioned})
+                    return 1
                     
                 else:
-                    return -1, None
+                    return -1
             else:
-                return -2, None
+                return -2
                 
 
 class Sentiment(object):
@@ -148,8 +150,9 @@ class Sentiment(object):
         else:
             return self.model.predict(x)
     
-    def _score_posts(self, df):
-        df['sentiment'] = df['text'].apply(lambda x: self._test_model(x, proba=False)[0]).map(self.MAP_V)
+    def _score_posts(self, context):
+        context.user_data['df']['sentiment'] = context.user_data['df']['text'].apply(lambda x: self._test_model(x, proba=False)[0]).map(self.MAP_V)
+        
 
 class Graphics():
     def __init__(self):
@@ -159,7 +162,9 @@ class Graphics():
         self.ner_tagger = NewsNERTagger(self.emb)
         self.morph_vocab = MorphVocab()
     
-    def pie_chart(self, df, user):
+    def pie_chart(self, context):
+        df = context.user_data['df']
+        
         s = df['sentiment'].value_counts()
         fig, ax = plt.subplots()
         labels = s.index.tolist()
@@ -178,8 +183,9 @@ class Graphics():
         plt.savefig(buf, format='png')
         return buf
 
-    def link_chart(self, df, user):
-        network_df = self._find_connections(df)
+    def link_chart(self, context):
+        
+        network_df = self._find_connections(context)
         fig = plt.figure()
         ax = plt.gca()
         fig.set_facecolor('white')
@@ -197,14 +203,15 @@ class Graphics():
             "font_size": 10, 
             "with_labels": True}
         
-        plt.title('Connections between stocks in posts about {}'.format(df.at[1, 'ticker']))
+        plt.title('Connections between stocks in posts about {}'.format(context.user_data['current_ticker']))
         nx.drawing.nx_pylab.draw_networkx(network1, pos = pos, **options)
         
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         return buf
         
-    def _find_connections(self, df):
+    def _find_connections(self, context):
+        df = context.user_data['df']
         dic_m = {}
         for row in df['mentioned'].tolist():
             list1 = row.split(' ')
@@ -223,7 +230,8 @@ class Graphics():
             list1.append([k[0], k[1], v])
         return pd.DataFrame(list1, columns = ['Ticker', 'Target', 'Weight'])
     
-    def _proper_names(self, df):
+    def _proper_names(self, context):
+        df = context.user_data['df']
         entr = set()
         for row in df.text.values:
             clean_text = self._clean_text(row)
@@ -236,15 +244,15 @@ class Graphics():
                     entr.add(r.sub('[0-9.,!?]*$%^', '', span.text).rstrip())
         return entr
     
-    def proper_word_chart(self, df, user):
-        entr = list(self._proper_names(df))
+    def proper_word_chart(self, context):
+        
+        entr = list(self._proper_names(context))
         string = entr[0]
         for e in entr[1:]:
             string = string+',' + e
         wordcloud = WordCloud(background_color="white", max_words=100, contour_width=3, contour_color='steelblue', width=400, height=400)
         wordcloud.generate(string)
         img = wordcloud.to_image()
-        
         buf = io.BytesIO()
         img.save(buf, 'PNG', optimize=True)
         return buf
@@ -254,13 +262,6 @@ class Posts(Sentiment, Parser, Graphics):
         Sentiment.__init__(self)
         Parser.__init__(self)
         Graphics.__init__(self)
-        self.user_dic = {} #save responses from users
-    
-    #isolate data between users
-    @staticmethod
-    def add_user_to_dic(user, user_dic):
-        if user not in user_dic.keys():
-            user_dic[user] = {'current_ticker': None, 'df': None}
     
     @classmethod
     def start(cls, update, context):
@@ -274,31 +275,37 @@ class Posts(Sentiment, Parser, Graphics):
         context.bot.send_message(chat_id = update.effective_chat.id, text = text_start) 
     
     def grab_data(self, update, context):
-        user = update.message.from_user.username
-        res, self.user_dic[user]['df'] = self.stock_parser(self.user_dic[user]['current_ticker'])
+        res = self.stock_parser(context)
+
         if res > 0:
-            self._score_posts(self.user_dic[user]['df'])
+
+            self._score_posts(context)
         else: 
             context.bot.send_message(chat_id=update.effective_chat.id, text='Try later, Service is not responding')
             
     def ticker_decorator(func):
         
         def wrapper(self, update, context):
-            user = update.message.from_user.username
-            Posts.add_user_to_dic(user, self.user_dic)
-        
+
+            if 'current_ticker' not in context.user_data.keys():
+                context.user_data['current_ticker'] = None            
+            
             if len(context.args) > 1:
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Too many tickers')
-            elif len(context.args) == 0 and self.user_dic[user]['current_ticker'] != None:
+
+            elif len(context.args) == 0 and context.user_data['current_ticker'] != None:
+
                 context.bot.send_message(chat_id=update.effective_chat.id, 
-                                         text='Data for the last ticker provided: {}'.format(self.user_dic[user]['current_ticker']))
+                                         text='Data for the last ticker provided: {}'.format(context.user_data['current_ticker']))
                 func(self, update, context)
             elif len(context.args) == 0:
                 context.bot.send_message(chat_id=update.effective_chat.id, text='Provide ticker')
             else:
                 ticker = context.args[0].upper()
-                if self.user_dic[user]['current_ticker'] != ticker:
-                    self.user_dic[user]['current_ticker'] = ticker
+                
+                if ticker !=context.user_data['current_ticker']:
+                        
+                    context.user_data['current_ticker'] = ticker
                     self.grab_data(update, context)
                     func(self, update, context)
                 else:
@@ -307,35 +314,31 @@ class Posts(Sentiment, Parser, Graphics):
     
     @ticker_decorator
     def proper_names(self, update, context):
-        user = update.message.from_user.username
-        df = self.user_dic[user]['df']
         
-        buf = self.proper_word_chart(df, user)
+        buf = self.proper_word_chart(context)
         buf.seek(0)
         context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf)
         buf.close()
     
     @ticker_decorator
     def recent_posts(self, update, context):
-        user = update.message.from_user.username
+
         for i in range(3):
-            text = self.user_dic[user]['df'].at[i, 'text'][:500]
-            sent, emodji = self.user_dic[user]['df'].at[i, 'sentiment'], self.emodji[self.user_dic[user]['df'].at[i, 'sentiment']]
+            text = context.user_data['df'].at[i, 'text'][:500]
+            sent, emodji = context.user_data['df'].at[i, 'sentiment'], self.emodji[context.user_data['df'].at[i, 'sentiment']]
             text = '{} {}:  \n\n {}'.format(emodji, sent, text) 
             context.bot.send_message(chat_id=update.effective_chat.id, text=text) 
      
     @ticker_decorator    
     def get_links(self, update, context):
-        user = update.message.from_user.username
-        buf = self.link_chart(self.user_dic[user]['df'], user)
+        buf = self.link_chart(context)
         buf.seek(0)
         context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf)
         buf.close()
 
     @ticker_decorator
     def get_stat(self, update, context):
-        user = update.message.from_user.username
-        buf = self.pie_chart(self.user_dic[user]['df'], user)
+        buf = self.pie_chart(context)
         buf.seek(0)
         context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf)
         buf.close()
