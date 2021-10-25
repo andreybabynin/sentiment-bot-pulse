@@ -10,3 +10,5 @@
 
 1. Collect recent posts from telegram channels dedicated to particular stock
 2. Build historical sentimental graph for stock and for broad market (RU: MOEX)
+
+**This bot lives here:** @not_alert_bot
