@@ -15,6 +15,7 @@ import os
 import networkx as nx
 from itertools import combinations
 from wordcloud import WordCloud
+import io
 from natasha import (
     MorphVocab,
     Doc,
@@ -30,11 +31,6 @@ PORT  = int(os.environ.get('PORT', 8443))
 telegram_bot_token = os.environ.get('telegram_bot_token')
 MY_ID = int(os.environ.get('MY_ID'))
 
-'''
-with open('./auth.json', 'r') as f:
-    auth_dic = json.load(f)
-    f.close()
-'''
 class Parser(object):
     def __init__(self):
         self.base_link = 'https://www.tinkoff.ru/api/invest-gw/social/v1/post/instrument/{}?limit=30&appName=invest&platform=web'
@@ -177,7 +173,10 @@ class Graphics():
               bbox_to_anchor =(0.8, 0.1, 0.5, 1))
         plt.setp(autotexts, size = 10, weight ="bold")
         plt.title('{} sentiment for the last 30 posts'.format(df.at[0, 'ticker']))
-        plt.savefig('./{}.png'.format(user))
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        return buf
 
     def link_chart(self, df, user):
         network_df = self._find_connections(df)
@@ -200,7 +199,10 @@ class Graphics():
         
         plt.title('Connections between stocks in posts about {}'.format(df.at[1, 'ticker']))
         nx.drawing.nx_pylab.draw_networkx(network1, pos = pos, **options)
-        plt.savefig('./link_{}.png'.format(user))
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        return buf
         
     def _find_connections(self, df):
         dic_m = {}
@@ -241,7 +243,11 @@ class Graphics():
             string = string+',' + e
         wordcloud = WordCloud(background_color="white", max_words=100, contour_width=3, contour_color='steelblue', width=400, height=400)
         wordcloud.generate(string)
-        wordcloud.to_file('./proper_{}.png'.format(user))
+        img = wordcloud.to_image()
+        
+        buf = io.BytesIO()
+        img.save(buf, 'PNG', optimize=True)
+        return buf
         
 class Posts(Sentiment, Parser, Graphics):
     def __init__(self):
@@ -259,10 +265,10 @@ class Posts(Sentiment, Parser, Graphics):
     @classmethod
     def start(cls, update, context):
         text_start = """This BOT can do several things: \n
-        /recent [TICKER] - extract recent posts and sentiment (max 500 symbols) \n
-        /stat [TICKER] - statistics about comments \n
-        /links [TICKER] - graph of linked stocks based on frequency in recent comments \n
-        /names [TICKER] - visualize proper names in posts \n
+        /recent [TICKER] - extract recent posts and sentiment (max 500 symbols)
+        /stat [TICKER] - statistics about comments
+        /links [TICKER] - graph of linked stocks based on frequency in recent comments
+        /names [TICKER] - visualize proper names in posts
         /feedback - write about your experience"""
     
         context.bot.send_message(chat_id = update.effective_chat.id, text = text_start) 
@@ -304,9 +310,10 @@ class Posts(Sentiment, Parser, Graphics):
         user = update.message.from_user.username
         df = self.user_dic[user]['df']
         
-        self.proper_word_chart(df, user)
-        context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./proper_{}.png'.format(user), "rb"))
-
+        buf = self.proper_word_chart(df, user)
+        buf.seek(0)
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf)
+        buf.close()
     
     @ticker_decorator
     def recent_posts(self, update, context):
@@ -320,24 +327,27 @@ class Posts(Sentiment, Parser, Graphics):
     @ticker_decorator    
     def get_links(self, update, context):
         user = update.message.from_user.username
-        self.link_chart(self.user_dic[user]['df'], user)
-        context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./link_{}.png'.format(user), "rb"))
+        buf = self.link_chart(self.user_dic[user]['df'], user)
+        buf.seek(0)
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf)
+        buf.close()
 
     @ticker_decorator
     def get_stat(self, update, context):
         user = update.message.from_user.username
-        self.pie_chart(self.user_dic[user]['df'], user)
-        context.bot.send_photo(chat_id=update.effective_chat.id, photo=open('./{}.png'.format(user), "rb"))
+        buf = self.pie_chart(self.user_dic[user]['df'], user)
+        buf.seek(0)
+        context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf)
+        buf.close()
 
     def feedback(self, update, context):
         user, text = update.message.from_user.username, update.message.text[10:]
-        #context.bot.send_message(chat_id=auth_dic['MY_ID'], text = """from user: {}, message: {} \n\n #FEED""".format(user, text))
+        
         context.bot.send_message(chat_id=MY_ID, text = """from user: {}, message: {} \n\n #FEED""".format(user, text))
         update.message.reply_text('Thank you, {}, for your feedback!'.format(user))
     
         
 def main():
-    #updater = Updater(token=auth_dic['telegram_bot_token'], use_context=True)
     updater = Updater(token=telegram_bot_token, use_context=True)
     dispatcher = updater.dispatcher
     p = Posts()
@@ -347,14 +357,11 @@ def main():
     dispatcher.add_handler(CommandHandler('links', p.get_links))
     dispatcher.add_handler(CommandHandler('stat', p.get_stat))
     dispatcher.add_handler(CommandHandler('names', p.proper_names))
-    '''
-    updater.start_webhook(listen="0.0.0.0",
-            port=PORT, url_path = auth_dic['telegram_bot_token'],
-            webhook_url = "https://sentiment-bot-pulse.herokuapp.com/" + auth_dic['telegram_bot_token'])
-    '''
+    
     updater.start_webhook(listen="0.0.0.0",
             port=PORT, url_path = telegram_bot_token,
             webhook_url = "https://sentiment-bot-pulse.herokuapp.com/" + telegram_bot_token)
+    
     #updater.start_polling()
     updater.idle()
 
