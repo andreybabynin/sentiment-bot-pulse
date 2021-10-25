@@ -27,10 +27,14 @@ plt.style.use("dark_background")
 nltk.download('stopwords')
 nltk.download('punkt')
 PORT  = int(os.environ.get('PORT', 8443))
+telegram_bot_token = os.environ.get('telegram_bot_token')
+MY_ID = int(os.environ.get('MY_ID'))
+
+'''
 with open('./auth.json', 'r') as f:
     auth_dic = json.load(f)
     f.close()
-
+'''
 class Parser(object):
     def __init__(self):
         self.base_link = 'https://www.tinkoff.ru/api/invest-gw/social/v1/post/instrument/{}?limit=30&appName=invest&platform=web'
@@ -194,7 +198,7 @@ class Graphics():
             "font_size": 10, 
             "with_labels": True}
         
-        plt.title('Connectios between stocks in posts about {}'.format(df.at[1, 'ticker']))
+        plt.title('Connections between stocks in posts about {}'.format(df.at[1, 'ticker']))
         nx.drawing.nx_pylab.draw_networkx(network1, pos = pos, **options)
         plt.savefig('./link_{}.png'.format(user))
         
@@ -327,12 +331,14 @@ class Posts(Sentiment, Parser, Graphics):
 
     def feedback(self, update, context):
         user, text = update.message.from_user.username, update.message.text[10:]
-        context.bot.send_message(chat_id=auth_dic['MY_ID'], text = """from user: {}, message: {} \n\n #FEED""".format(user, text))
+        #context.bot.send_message(chat_id=auth_dic['MY_ID'], text = """from user: {}, message: {} \n\n #FEED""".format(user, text))
+        context.bot.send_message(chat_id=MY_ID, text = """from user: {}, message: {} \n\n #FEED""".format(user, text))
         update.message.reply_text('Thank you, {}, for your feedback!'.format(user))
     
         
 def main():
-    updater = Updater(token=auth_dic['telegram_bot_token'], use_context=True)
+    #updater = Updater(token=auth_dic['telegram_bot_token'], use_context=True)
+    updater = Updater(token=telegram_bot_token, use_context=True)
     dispatcher = updater.dispatcher
     p = Posts()
     dispatcher.add_handler(CommandHandler('recent', p.recent_posts))
@@ -341,11 +347,14 @@ def main():
     dispatcher.add_handler(CommandHandler('links', p.get_links))
     dispatcher.add_handler(CommandHandler('stat', p.get_stat))
     dispatcher.add_handler(CommandHandler('names', p.proper_names))
-    
+    '''
     updater.start_webhook(listen="0.0.0.0",
             port=PORT, url_path = auth_dic['telegram_bot_token'],
             webhook_url = "https://sentiment-bot-pulse.herokuapp.com/" + auth_dic['telegram_bot_token'])
-    
+    '''
+    updater.start_webhook(listen="0.0.0.0",
+            port=PORT, url_path = telegram_bot_token,
+            webhook_url = "https://sentiment-bot-pulse.herokuapp.com/" + telegram_bot_token)
     #updater.start_polling()
     updater.idle()
 
