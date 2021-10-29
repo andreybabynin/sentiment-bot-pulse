@@ -3,7 +3,7 @@
 #### What can this bot do:
 
 1. Score comments by sentiment and build analytics on top of it `/recent` and `/stat`
-2. By uisng [wordcloud library](https://amueller.github.io/word_cloud/index.html) extract names of organiaztions from posts `/names`
+2. By using [wordcloud library](https://amueller.github.io/word_cloud/index.html) extract names of organiaztions from posts `/names`
 3. Build network graph for stocks mentiond in posts `/links`
 ---
 #### In the near future it will be able to 
