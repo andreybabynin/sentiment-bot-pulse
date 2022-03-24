@@ -1,15 +1,15 @@
 import os
 from classes.parser import Parser
 from classes.sentiment import Sentiment
-from classes.graphics import Graphics
+from classes.graphics import GraphicsTools
 
 MY_ID = int(os.environ.get('MY_ID'))
 
-class Posts(Sentiment, Parser, Graphics):
+class Posts(Sentiment, Parser, GraphicsTools):
     def __init__(self):
         Sentiment.__init__(self)
         Parser.__init__(self)
-        Graphics.__init__(self)
+        GraphicsTools.__init__(self)
     
     @classmethod
     def start(cls, update, context):

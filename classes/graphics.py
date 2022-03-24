@@ -16,7 +16,7 @@ from wordcloud import WordCloud
 plt.style.use("dark_background")
 
 
-class Graphics():
+class GraphicsTools():
     def __init__(self):
         self.dic_color =  {'Bullish': 'green', 'Neutral': 'grey', 'Bearish': 'red'}
         self.segmenter = Segmenter()
@@ -71,26 +71,30 @@ class Graphics():
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         return buf
+    
+    @staticmethod
+    def create_df_from_edge_dic(dic_graph_edges):
+        temp_list = []
+        for k, v in dic_graph_edges.items():
+            temp_list.append([k[0], k[1], v])
+        return pd.DataFrame(temp_list, columns = ['Ticker', 'Target', 'Weight'])
         
     def _find_connections(self, context):
         df = context.user_data['df']
-        dic_m = {}
+        dic_graph_edges = {}
         for row in df['mentioned'].tolist():
             list1 = row.split(' ')
             list1.remove(df.at[0, 'ticker'])
             if list1 != None:
                 comb = list(combinations(list1, 2))
                 for i in comb:
-                    if (i in dic_m.keys()) or ((i[1], i[0]) in dic_m.keys()):
+                    if (i in dic_graph_edges.keys()) or ((i[1], i[0]) in dic_graph_edges.keys()):
                         try:
-                            dic_m[i] += 1
-                        except: dic_m[(i[1], i[0])] += 1
+                            dic_graph_edges[i] += 1
+                        except: dic_graph_edges[(i[1], i[0])] += 1
                     else:
-                        dic_m[i] = 1
-        list1 = []
-        for k,v in dic_m.items():
-            list1.append([k[0], k[1], v])
-        return pd.DataFrame(list1, columns = ['Ticker', 'Target', 'Weight'])
+                        dic_graph_edges[i] = 1
+        return create_df_from_edge_dic(dic_graph_edges)
     
     def _proper_names(self, context):
         df = context.user_data['df']
